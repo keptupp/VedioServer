@@ -1,0 +1,252 @@
+<html>
+<body>
+    加入时id：<input id="uid" type="text"/><button onclick="join()">加入</button>
+    <select id="captureType" onclick="changeCapture(this)">
+        <option value="前置" selected="selected">默认(前置摄像头)</option>
+        <option value="后置">后置摄像头</option>
+        <option value="屏幕">屏幕捕获</option>
+    </select>
+    <br>
+    本地: <br>
+    <video id="localVideo" autoplay muted></video><br>
+    远程: <br>
+    <div id="remoteVideo">
+        <!-- 
+            这里改成动态创建远端用户的视频播放器,每个播放器的uid就是其播放器id
+            具体看获取getRTCPeerConnection()里的createRemoteVedio()方法，因为每创建一个peer实例
+            就像相当于要为其创建一个播放器
+        -->
+        <!-- <video id="remoteVideo" autoplay></video> -->
+    </div>
+    
+ 
+    <script>
+
+        var peerlist={}//存储与每个用户连接到peer
+        var newuid;//自己本地
+        var sendOfferFn={}
+        var sendAnswerFn={}
+        var socket
+        var createType//记录是offer还是answer，便于获取流后的操作
+        var captureType='前置'
+
+        //测试
+        var test=function(){
+            console.log("设置本地sdp的回调函数")
+        }
+        function onError(err){
+            console.log("设置本地描述sdp失败",err.message)
+        }
+
+
+        const constraints={
+            'video':true,
+            'audio':true//这里打开，好申请权限，在视频中把音量去掉
+        }
+        const mediaDevices=navigator.mediaDevices.enumerateDevices()
+        console.log(mediaDevices)
+        navigator.mediaDevices.getUserMedia(constraints).then(
+            stream=>{
+                //获取到视频流
+                document.getElementById('localVideo').srcObject = stream;
+                
+
+            }).catch(error=>{
+                alert('摄像头或麦克风权限获取失败，请检查系统权限是否打开',error)
+            })
+
+        //创建一个id为uid的播放框
+        function createRemoteVedio(uid){
+            var fatherDiv=document.getElementById("remoteVideo")//获取父元素
+            var childVedio=document.createElement("video")//创建一个存放vedio的div
+            childVedio.setAttribute("id",uid)//设置id
+            childVedio.setAttribute("autoplay","autoplay")
+            fatherDiv.append(childVedio)//将该播放器添加到父元素里面
+        }
+        //把获取rtc连接的实例方法独立出来,uid表示与那个用户连接
+        function getRTCPeerConnection(uid){
+            // stun和turn服务器
+            var iceServer = {
+                "iceServers": [{
+                    "url": "stun:wsstest.keptupp.top:3001",
+                    "username": "keptupp",
+                    "credential": "123456"
+                }, {
+                    "url": "turn:wsstest.keptupp.top",
+                    "username": "keptupp",
+                    "credential": "123456"
+                }]
+            };
+
+            // 创建PeerConnection实例 (多人视频的话就不能只创建一个实例了)
+            //peerlist[uid] = new webkitRTCPeerConnection(iceServer);
+            //有些浏览器的名字不一样，下面是常见的名字
+            peerlist[uid] = new  window.RTCPeerConnection(iceServer) || window.mozRTCPeerConnection(iceServer) || window.webkitRTCPeerConnection(iceServer);
+
+            //创建为该用户创建一个播放框,id为uid
+            createRemoteVedio(uid)           
+
+            // 发送ICE候选到其他客户端
+            peerlist[uid].onicecandidate = function(event){
+                console.log("触发了ice事件")
+                if (event.candidate !== null) {
+                    socket.send(JSON.stringify({
+                        "event": "_ice_candidate",
+                        "data": {
+                            "candidate": event.candidate
+                        },
+                        "uid":newuid,//给uid发送自己的ice
+                        "toUid":uid
+                        
+                    }));
+                }
+            };
+
+            // 如果检测到媒体流连接到本地，将其绑定到一个video标签上输出
+            // peerlist[uid].onaddstream = function(event){
+            //     console.log("有新流加入",uid)
+            //     document.getElementById(uid).srcObject = event.stream
+            // };
+            //新方法
+            peerlist[uid].ontrack = ({streams: [stream]}) => document.getElementById(uid).srcObject = stream;
+
+            // 发送offer和answer的函数，发送本地session描述
+            sendOfferFn[uid] = function(desc){
+                console.log("设置了本地描述sdp",desc)
+                peerlist[uid].setLocalDescription(desc,test,onError);
+                socket.send(JSON.stringify({ 
+                    "event": "_offer",
+                    "data": {
+                        "sdp": desc
+                    },
+                    "newuid":newuid,
+                    "uid": uid
+                }));
+            }
+
+            //回复answer的时候说明回给谁
+            sendAnswerFn[uid] = function(desc){
+                console.log("设置了本地描述sdp，回复answer,新用户",uid,"本地sdp",desc)
+                peerlist[uid].setLocalDescription(desc,test,onError);
+                socket.send(JSON.stringify({ 
+                    "event": "_answer",
+                    "data": {
+                        "sdp": desc
+                    },
+                    "newuid":uid,//因为是已连接用户回复，所以newuid就是自己的uid，传过来的uid是新用户的
+                    "uid":newuid
+                }));
+            }
+
+
+            const constraints={
+                'video':true,
+                'audio':true
+            }          
+            navigator.mediaDevices.getUserMedia(constraints).then(
+                stream=>{
+                    //获取到视频流
+                    //document.getElementById('localVideo').srcObject = stream;
+                    //向PeerConnection中加入需要发送的流
+                    console.log("给peer添加流")
+                    //peerlist[uid].addStream(stream);
+                    //新方法addTrack()
+                    for (const track of stream.getTracks()) {
+                        peerlist[uid].addTrack(track,stream);
+                    }
+                    console.log('测试测试测试，这是函数里面的流',stream.getTracks())
+                    if(createType==="offer"){
+                        console.log("给用户发送自己的offer,用户：",uid)
+                        peerlist[uid].createOffer(sendOfferFn[uid], function (error) {
+                            console.log('发送offer_sdp失败' + error);
+                        }); 
+                    }else if(createType==="answer"){
+                        console.log("给用户发送answer",uid)
+                        peerlist[uid].createAnswer(sendAnswerFn[uid], function (error) {
+                            console.log('Failure callback: ' + error);
+                        })
+                    }
+                }).catch(error=>{
+                    console.error('视频流获取失败',error)
+                })
+        }
+            
+        //点击加入后才连接websocket
+        function join(){
+            newuid=document.getElementById("uid").value;//获取newuid，用于区分用户
+            var wsURL="wss://wsstest.keptupp.top:3000";//ws连接url
+            //开始连接，携带uid
+            socket = new WebSocket(wsURL+"?newuid="+newuid);
+
+
+            //处理到来的信令
+            socket.onmessage = function(event){
+                var blob=event.data;
+                if(blob instanceof Blob){
+                    var fileReader=new FileReader();
+                    //fileReader.readAsBinaryString(blob);//会乱码
+                    fileReader.readAsText(blob,"UTF-8")
+                    fileReader.onload=function(){
+                        var resultString=this.result;//访问不到blobData,只能尝试把逻辑放在里面
+                        var json=JSON.parse(resultString)
+
+                        console.log("收到消息,类型",json.event)
+                        //如果是一个ICE的候选，则将其加入到PeerConnection中，否则设定对方的session描述为传递过来的描述
+                        if( json.event === "_ice_candidate" ){
+                            peerlist[json.uid].addIceCandidate(new RTCIceCandidate(json.data.candidate));
+                        }else {
+                            // 如果是一个offer，那么需要回复一个answer
+                            if(json.event === "_offer") {
+                                console.log("接收到新用户的offer,为其创建peer,新用户:",json.newuid)
+                                createType="answer"
+                                getRTCPeerConnection(json.newuid)
+                                //将新用户的sdp存储
+                                console.log("设置新用户的sdp",json.newuid)
+                                peerlist[json.newuid].setRemoteDescription(new RTCSessionDescription(json.data.sdp))
+  
+                            }else if(json.event==="_answer"){
+                                console.log("已经接收到了用户回复的answer,设置该用户的sdp,该用户:",json.uid)
+                                peerlist[json.uid].setRemoteDescription(new RTCSessionDescription(json.data.sdp))
+                            }
+                        }
+
+                    }
+                }else{
+                    json=JSON.parse(blob);
+                    if(json.event==="_userlist"){
+                        alert("加入成功，等待其他用户连接")
+                        console.log("接收到服务器传回的用户名单，为其创建peer",json.data);
+                        //为每一个用户创建peer,并且发送自己的offer sdp
+                        for(var i=0;i<json.data.length;i++){
+                            createType="offer"
+                            getRTCPeerConnection(json.data[i]);
+                        }
+                    }else if(json.event==="用户已存在"){
+                        alert("你已经加入")
+                    }else if(json.event==="_closeUser"){
+                        console.log("移除",json.uid,"的视频框与信息")
+                        delete peerlist[json.uid]
+                        delete sendOfferFn[json.uid]
+                        delete sendAnswerFn[json.uid]
+                        document.getElementById(json.uid).remove()
+                    }
+                }
+                
+            };
+
+
+            socket.onclose=function(){
+                console.log("websocket断开连接")
+            };
+
+        };
+
+        function changeCapture(element){
+            captureType=element.options[element.options.selectedIndex].value
+            //想要切换设备，将peerlist连接的视频流全部删掉，换成新的视频流，然后重新发送sdp，也就是发送offer
+            //原来的代码，在收到offer后，会默认为其创建一个连接（这里要加个判断，不然就多创建了个窗口）
+        }
+ 
+    </script>
+</body>
+</html>

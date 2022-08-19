@@ -1,0 +1,72 @@
+<html>
+    <body>
+        加入时id：<input id="uid" type="text"/><button onclick="join()">加入</button><br>
+        Local: <br>
+        <video id="localVideo" autoplay></video><br>
+        Remote: <br>
+        <video id="remoteVideo" autoplay></video>
+    </body>
+
+    <script>
+        var localUid
+        var remoteUid
+        var peerList={}
+        var socket
+        var iceServer={
+            "iceServers": [{
+                "url": "stun:stun.l.google.com:19302"
+            }, {
+                "url": "turn:numb.viagenie.ca",
+                "username": "webrtc@live.com",
+                "credential": "muazkh"
+            }]
+        }
+        var constraints={
+            'video':true,
+            'audio':true
+        }
+
+        var sendOfferFn=function(desc){
+            console.log("offersdp:",desc)
+        }
+
+        function getPeer(){
+            peerList[localUid] = new webkitRTCPeerConnection(iceServer)
+            peerList[localUid].onicecandidate=function(evect){
+                console.log("触发候选")
+            }
+            peerList[localUid].onaddstream=function(event){
+                console.log("有视频流接入")
+            }
+
+            const constraints={
+            'video':true,
+            'audio':true
+            }
+            navigator.mediaDevices.getUserMedia(constraints).then(
+                stream=>{
+                    console.log("将本地流放到peer中")
+                    peerList[localUid].addStream(stream);
+                }).catch(error=>{
+                    console.error('视频流获取失败',error)
+                })
+            
+            setTimeout(function(){
+                peerList[localUid].createOffer(sendOfferFn,function(error){
+                    console.log(error)
+                })
+            },10000)
+            
+        }
+
+        function join(){
+            localUid=document.getElementById("uid").value.toString()//获取自己的uid
+            console.log(localUid)
+            var wsURL="wss://wsstest.keptupp.top:3000";//ws连接url
+            //开始连接，携带uid
+            socket = new WebSocket(wsURL+"?newuid="+localUid);
+
+            getPeer()
+        }
+    </script>
+</html>

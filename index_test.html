@@ -1,0 +1,138 @@
+<html>
+<body>
+    Local: <br>
+    <video id="localVideo" autoplay></video><br>
+    Remote: <br>
+    <video id="remoteVideo" autoplay></video>
+ 
+    <script>
+
+        //测试把peer放在键值对里面能不能触发
+        var peerList={}
+        var id=123
+        
+        // 仅仅用于控制哪一端的浏览器发起offer，#号后面有值的一方发起
+        var isCaller = window.location.href.split('#')[1];
+        console.log('链接的区别',isCaller)
+ 
+        // 与信令服务器的WebSocket连接
+        // var socket = new WebSocket("ws://127.0.0.1:3000");
+        var socket = new WebSocket('wss://wsstest.keptupp.top:3000');//把ip改成局域网的，看看局域网能不能连接
+ 
+
+        function getPeerConnection(){
+            // stun和turn服务器
+            var iceServer = {
+                "iceServers": [{
+                    "url": "stun:stun.l.google.com:19302"
+                }, {
+                    "url": "turn:numb.viagenie.ca",
+                    "username": "webrtc@live.com",
+                    "credential": "muazkh"
+                }]
+            };
+
+            // 创建PeerConnection实例 (参数为null则没有iceserver，即使没有stunserver和turnserver，仍可在局域网下通讯)
+            peerList[id] = new webkitRTCPeerConnection(iceServer);
+            console.log("创建peer实例")
+
+            // 发送ICE候选到其他客户端
+            peerList[id].onicecandidate = function(event){
+                if (event.candidate !== null) {
+                    console.log("发送ice给另一个用户")
+                    socket.send(JSON.stringify({
+                        "event": "_ice_candidate",
+                        "data": {
+                            "candidate": event.candidate
+                        }
+                    }));
+                }
+            };
+
+            // 如果检测到媒体流连接到本地，将其绑定到一个video标签上输出
+            peerList[id].onaddstream = function(event){
+                // document.getElementById('remoteVideo').src = URL.createObjectURL(event.stream);
+                console.log("检测到有流接入")
+                document.getElementById('remoteVideo').srcObject = event.stream;
+            }
+        }
+        
+ 
+        // 发送offer和answer的函数，发送本地session描述
+        var sendOfferFn = function(desc){
+            console.log("设置自己的sdp")
+            peerList[id].setLocalDescription(desc);
+            console.log("发送offer",desc)
+            socket.send(JSON.stringify({ 
+                "event": "_offer",
+                "data": {
+                    "sdp": desc
+                }
+            }));
+        }
+        var sendAnswerFn = function(desc){
+            console.log("接受到offer,设置他人的sdp",desc)
+            peerList[id].setLocalDescription(desc);
+            console.log("发送自己的answer")
+            socket.send(JSON.stringify({ 
+                "event": "_answer",
+                "data": {
+                    "sdp": desc
+                }
+            }));
+        };
+ 
+
+
+        const constraints={
+            'video':true,
+            'audio':true
+        }
+        navigator.mediaDevices.getUserMedia(constraints).then(
+            stream=>{
+                getPeerConnection()
+                //获取到视频流
+                document.getElementById('localVideo').srcObject = stream;
+                //向PeerConnection中加入需要发送的流
+                console.log("将本地流放到peer中")
+                peerList[id].addStream(stream);
+                //如果是发起方则发送一个offer信令
+                if(isCaller){
+                    peerList[id].createOffer(sendOfferFn, function (error) {
+                        console.log('Failure callback: ' + error);
+                    });
+                }
+            }).catch(error=>{
+                console.error('视频流获取失败',error)
+            })
+ 
+        //处理到来的信令
+        socket.onmessage = function(event){
+            //var json = JSON.parse(event.data);//这个方法不行，数据大的时候是blob文件，需要FileReader来读取
+            var blob=event.data;
+            var fileReader=new FileReader();
+            fileReader.readAsBinaryString(blob);
+            fileReader.onload=function(){
+                var resultString=this.result;//访问不到blobData,只能尝试把逻辑放在里面
+                var json=JSON.parse(resultString)
+                //如果是一个ICE的候选，则将其加入到PeerConnection中，否则设定对方的session描述为传递过来的描述
+                if( json.event === "_ice_candidate" ){
+                    console.log("接收到其他用户发生的ice")
+                    peerList[id].addIceCandidate(new RTCIceCandidate(json.data.candidate));
+                } else {
+                    console.log("接收到其他用户发送的sdp")
+                    peerList[id].setRemoteDescription(new RTCSessionDescription(json.data.sdp));
+                    // 如果是一个offer，那么需要回复一个answer
+                    if(json.event === "_offer") {
+                        console.log("回一个自己的sdp")
+                        peerList[id].createAnswer(sendAnswerFn, function (error) {
+                            console.log('Failure callback: ' + error);
+                        });
+                    }
+                }
+
+            }
+        };
+    </script>
+</body>
+</html>
