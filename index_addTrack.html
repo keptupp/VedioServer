@@ -1,14 +1,14 @@
 <html>
 <body>
     加入时id：<input id="uid" type="text"/><button onclick="join()">加入</button>
-    <select id="captureType" onclick="changeCapture(this)">
+    <select id="captureType" onchange="changeCapture(this)">
         <option value="前置" selected="selected">默认(前置摄像头)</option>
         <option value="后置">后置摄像头</option>
         <option value="屏幕">屏幕捕获</option>
     </select>
     <br>
     本地: <br>
-    <video id="localVideo" autoplay muted></video><br>
+    <video id="localVideo" autoplay muted style="width: 400px;"></video><br>
     远程: <br>
     <div id="remoteVideo">
         <!-- 
@@ -38,23 +38,39 @@
             console.log("设置本地描述sdp失败",err.message)
         }
 
-
         const constraints={
             'video':true,
             'audio':true//这里打开，好申请权限，在视频中把音量去掉
         }
-        const mediaDevices=navigator.mediaDevices.enumerateDevices()
-        console.log(mediaDevices)
-        navigator.mediaDevices.getUserMedia(constraints).then(
-            stream=>{
-                //获取到视频流
-                document.getElementById('localVideo').srcObject = stream;
-                
-
-            }).catch(error=>{
-                alert('摄像头或麦克风权限获取失败，请检查系统权限是否打开',error)
-            })
-
+        
+        async function setLocalStream(){
+            if(document.getElementById('localVideo').srcObject!=null){
+                //更改流之前，先把以前的流停掉
+                document.getElementById('localVideo').srcObject.getTracks()[0].stop()
+            }
+            if(captureType=='前置'){
+                navigator.mediaDevices.getUserMedia(constraints).then(
+                    stream=>{
+                        document.getElementById('localVideo').srcObject = stream
+                    }).catch(error=>{
+                        alert('摄像头或麦克风权限获取失败，请检查系统权限是否打开',error)
+                    })
+            }else if(captureType=='后置'){
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment"}}).then(
+                    stream=>{
+                        document.getElementById('localVideo').srcObject = stream
+                    }).catch(error=>{
+                        alert('摄像头或麦克风权限获取失败，请检查系统权限是否打开',error)
+                    })
+            }else if(captureType=='屏幕'){
+                try {
+                    document.getElementById('localVideo').srcObject= await navigator.mediaDevices.getDisplayMedia(constraints);
+                } catch(err) {
+                    alert("获取屏幕失败: " + err);
+                }
+            }
+        }
+        setLocalStream()
         //创建一个id为uid的播放框
         function createRemoteVedio(uid){
             var fatherDiv=document.getElementById("remoteVideo")//获取父元素
@@ -243,8 +259,11 @@
 
         function changeCapture(element){
             captureType=element.options[element.options.selectedIndex].value
+            setLocalStream()
+
             //想要切换设备，将peerlist连接的视频流全部删掉，换成新的视频流，然后重新发送sdp，也就是发送offer
             //原来的代码，在收到offer后，会默认为其创建一个连接（这里要加个判断，不然就多创建了个窗口）
+
         }
  
     </script>
