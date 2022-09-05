@@ -30,17 +30,40 @@
         var createType//记录是offer还是answer，便于获取流后的操作
         var captureType='前置'
 
+
         //测试
         var test=function(){
-            console.log("设置本地sdp的回调函数")
+            
         }
         function onError(err){
-            console.log("设置本地描述sdp失败",err.message)
+            
         }
 
         const constraints={
             'video':true,
             'audio':true//这里打开，好申请权限，在视频中把音量去掉
+        }
+        //把这个方法独立出来，便于之后给其他用户推送sdp
+        function updateStream(stream){
+            //把更新的视频流放到播放器中
+            document.getElementById('localVideo').srcObject = stream
+            //改变本地存储的peerconnection的sdp,向所有人推送新的sdp
+            //先把peerconnection里面的流替换成现在的流，再去向其他人发送sdp
+            for(var k in sendOfferFn){
+                //移除当前音视频轨道
+                senderList=peerlist[k].getSenders()
+                senderList.forEach((sender) => {
+                    peerlist[k].removeTrack(sender)
+                })
+                //添加新的音视频轨道
+                for (const track of stream.getTracks()) {
+                    peerlist[k].addTrack(track,stream);
+                }
+                //发送更改音视频轨道后的sdp
+                peerlist[k].createOffer(sendOfferFn[k],function(error){
+                    console.log("更新本地offer并向远端发送offer失败",error)
+                })
+            }
         }
         
         async function setLocalStream(){
@@ -49,25 +72,11 @@
                 document.getElementById('localVideo').srcObject.getTracks()[0].stop()
             }
             if(captureType=='前置'){
-                navigator.mediaDevices.getUserMedia(constraints).then(
-                    stream=>{
-                        document.getElementById('localVideo').srcObject = stream
-                    }).catch(error=>{
-                        alert('摄像头或麦克风权限获取失败，请检查系统权限是否打开',error)
-                    })
+                navigator.mediaDevices.getUserMedia(constraints).then(updateStream)
             }else if(captureType=='后置'){
-                navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment"}}).then(
-                    stream=>{
-                        document.getElementById('localVideo').srcObject = stream
-                    }).catch(error=>{
-                        alert('摄像头或麦克风权限获取失败，请检查系统权限是否打开',error)
-                    })
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment"}}).then(updateStream)
             }else if(captureType=='屏幕'){
-                try {
-                    document.getElementById('localVideo').srcObject= await navigator.mediaDevices.getDisplayMedia(constraints);
-                } catch(err) {
-                    alert("获取屏幕失败: " + err);
-                }
+                navigator.mediaDevices.getDisplayMedia(constraints).then(updateStream)
             }
         }
         setLocalStream()
@@ -80,7 +89,7 @@
             fatherDiv.append(childVedio)//将该播放器添加到父元素里面
         }
         //把获取rtc连接的实例方法独立出来,uid表示与那个用户连接
-        function getRTCPeerConnection(uid){
+        function getRTCPeerConnection(uid,jsonSdp){
             // stun和turn服务器
             var iceServer = {
                 "iceServers": [{
@@ -93,14 +102,20 @@
                     "credential": "123456"
                 }]
             };
+            var userAction='切换视频流'
 
-            // 创建PeerConnection实例 (多人视频的话就不能只创建一个实例了)
-            //peerlist[uid] = new webkitRTCPeerConnection(iceServer);
-            //有些浏览器的名字不一样，下面是常见的名字
-            peerlist[uid] = new  window.RTCPeerConnection(iceServer) || window.mozRTCPeerConnection(iceServer) || window.webkitRTCPeerConnection(iceServer);
+            if(peerlist[uid]===undefined){
+                // 创建PeerConnection实例 (多人视频的话就不能只创建一个实例了)
+                //peerlist[uid] = new webkitRTCPeerConnection(iceServer);
+                //有些浏览器的名字不一样，下面是常见的名字
+                console.log("是个新用户")
+                peerlist[uid] = new  window.RTCPeerConnection(iceServer) || window.mozRTCPeerConnection(iceServer) || window.webkitRTCPeerConnection(iceServer);
+                
+                //创建为该用户创建一个播放框,id为uid
+                createRemoteVedio(uid)  
 
-            //创建为该用户创建一个播放框,id为uid
-            createRemoteVedio(uid)           
+                userAction='新用户'
+            }         
 
             // 发送ICE候选到其他客户端
             peerlist[uid].onicecandidate = function(event){
@@ -138,6 +153,7 @@
                     "newuid":newuid,
                     "uid": uid
                 }));
+
             }
 
             //回复answer的时候说明回给谁
@@ -152,39 +168,57 @@
                     "newuid":uid,//因为是已连接用户回复，所以newuid就是自己的uid，传过来的uid是新用户的
                     "uid":newuid
                 }));
+                
+
             }
 
+            if(userAction==='新用户'){
+                const constraints={
+                    'video':true,
+                    'audio':true
+                }          
+                navigator.mediaDevices.getUserMedia(constraints).then(
+                    stream=>{
+                        //获取到视频流
+                        //document.getElementById('localVideo').srcObject = stream;
+                        //向PeerConnection中加入需要发送的流
+                        console.log("给peer添加流")
+                        //peerlist[uid].addStream(stream);
+                        //新方法addTrack()
+                        //console.log('对等连接的getTracks()返回的是啥',stream.getTracks())，音频和视频轨道
+                        for (const track of stream.getTracks()) {
+                            peerlist[uid].addTrack(track,stream);
+                        }
+                    
+                        if(createType==="offer"){
+                            console.log("给用户发送自己的offer,用户：",uid)
+                            peerlist[uid].createOffer(sendOfferFn[uid], function (error) {
+                                console.log('发送offer_sdp失败' + error);
+                            }); 
+                        }else if(createType==="answer"){
+                            //只有把远端offer的sdp设置好了，才能去answer
+                            console.log("设置用户的sdp",uid,'sdp是',jsonSdp)
+                            peerlist[uid].setRemoteDescription(new RTCSessionDescription(jsonSdp))
 
-            const constraints={
-                'video':true,
-                'audio':true
-            }          
-            navigator.mediaDevices.getUserMedia(constraints).then(
-                stream=>{
-                    //获取到视频流
-                    //document.getElementById('localVideo').srcObject = stream;
-                    //向PeerConnection中加入需要发送的流
-                    console.log("给peer添加流")
-                    //peerlist[uid].addStream(stream);
-                    //新方法addTrack()
-                    for (const track of stream.getTracks()) {
-                        peerlist[uid].addTrack(track,stream);
-                    }
-                    console.log('测试测试测试，这是函数里面的流',stream.getTracks())
-                    if(createType==="offer"){
-                        console.log("给用户发送自己的offer,用户：",uid)
-                        peerlist[uid].createOffer(sendOfferFn[uid], function (error) {
-                            console.log('发送offer_sdp失败' + error);
-                        }); 
-                    }else if(createType==="answer"){
-                        console.log("给用户发送answer",uid)
-                        peerlist[uid].createAnswer(sendAnswerFn[uid], function (error) {
-                            console.log('Failure callback: ' + error);
-                        })
-                    }
-                }).catch(error=>{
-                    console.error('视频流获取失败',error)
+                            console.log("给用户发送answer",uid)
+                            peerlist[uid].createAnswer(sendAnswerFn[uid], function (error) {
+                                console.log('Failure callback: ' + error);
+                            })
+                        }
+                    }).catch(error=>{
+                        console.error('视频流获取失败',error)
+                    })
+            }else if(userAction==='切换视频流'){
+                //如果只是切换视频流的话，只需要把用户的发来的offer的sdp设置一下就好
+                console.log(uid,'切换了视频流，设置他新的sdp,然后响应他的sdp,发送一个answer')
+                peerlist[uid].setRemoteDescription(new RTCSessionDescription(jsonSdp))
+                
+                peerlist[uid].createAnswer(sendAnswerFn[uid], function (error) {
+                    console.log('回复更改视频流的用户失败',error);
                 })
+
+            }
+            
         }
             
         //点击加入后才连接websocket
@@ -209,20 +243,20 @@
                         console.log("收到消息,类型",json.event)
                         //如果是一个ICE的候选，则将其加入到PeerConnection中，否则设定对方的session描述为传递过来的描述
                         if( json.event === "_ice_candidate" ){
+                            console.log("收到的ice是啥",json.data.candidate)
                             peerlist[json.uid].addIceCandidate(new RTCIceCandidate(json.data.candidate));
                         }else {
                             // 如果是一个offer，那么需要回复一个answer
                             if(json.event === "_offer") {
-                                console.log("接收到新用户的offer,为其创建peer,新用户:",json.newuid)
+                                console.log("用户发来offer,判断是新用户还是改视频流的",json.newuid)
                                 createType="answer"
-                                getRTCPeerConnection(json.newuid)
-                                //将新用户的sdp存储
-                                console.log("设置新用户的sdp",json.newuid)
-                                peerlist[json.newuid].setRemoteDescription(new RTCSessionDescription(json.data.sdp))
-  
+
+                                getRTCPeerConnection(json.newuid,json.data.sdp)
+                                
                             }else if(json.event==="_answer"){
                                 console.log("已经接收到了用户回复的answer,设置该用户的sdp,该用户:",json.uid)
                                 peerlist[json.uid].setRemoteDescription(new RTCSessionDescription(json.data.sdp))
+                                
                             }
                         }
 
@@ -253,6 +287,7 @@
 
             socket.onclose=function(){
                 console.log("websocket断开连接")
+                alert("连接已断开")
             };
 
         };

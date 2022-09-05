@@ -18,6 +18,7 @@ var server=https.createServer(options,app).listen(
 app.get('/',function(req,res){
     console.log('跳转到index.html')
     res.sendfile(__dirname + '/index_addTrack.html')
+    //res.sendfile(__dirname + '/index.html')
 });
 
 //以下代码是websocket要用
