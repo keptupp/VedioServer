@@ -36,7 +36,7 @@
             
         }
         function onError(err){
-            
+            console.log("出错",err)
         }
 
         const constraints={
@@ -173,42 +173,42 @@
             }
 
             if(userAction==='新用户'){
-                // const constraints={
-                //     'video':true,
-                //     'audio':true
-                // }          
-                // navigator.mediaDevices.getUserMedia(constraints).then(
-                //     stream=>{
-                //         //获取到视频流
-                //         //document.getElementById('localVideo').srcObject = stream;
-                //         //向PeerConnection中加入需要发送的流
-                //         console.log("给peer添加流")
-                //         //peerlist[uid].addStream(stream);
-                //         //新方法addTrack()
-                //         //console.log('对等连接的getTracks()返回的是啥',stream.getTracks())，音频和视频轨道
-                //         for (const track of stream.getTracks()) {
-                //             peerlist[uid].addTrack(track,stream);
-                //         }
+                const constraints={
+                    'video':true,
+                    'audio':true
+                }          
+                navigator.mediaDevices.getUserMedia(constraints).then(
+                    stream=>{
+                        //获取到视频流
+                        //document.getElementById('localVideo').srcObject = stream;
+                        //向PeerConnection中加入需要发送的流
+                        console.log("给peer添加流")
+                        //peerlist[uid].addStream(stream);
+                        //新方法addTrack()
+                        //console.log('对等连接的getTracks()返回的是啥',stream.getTracks())，音频和视频轨道
+                        for (const track of stream.getTracks()) {
+                            peerlist[uid].addTrack(track,stream);
+                        }
                     
-                //         if(createType==="offer"){
-                //             console.log("给用户发送自己的offer,用户：",uid)
-                //             peerlist[uid].createOffer(sendOfferFn[uid], function (error) {
-                //                 console.log('发送offer_sdp失败' + error);
-                //             }); 
-                //         }else if(createType==="answer"){
-                //             //只有把远端offer的sdp设置好了，才能去answer
-                //             console.log("设置用户的sdp",uid,'sdp是',jsonSdp)
-                //             peerlist[uid].setRemoteDescription(new RTCSessionDescription(jsonSdp))
+                        if(createType==="offer"){
+                            console.log("给用户发送自己的offer,用户：",uid)
+                            peerlist[uid].createOffer(sendOfferFn[uid], function (error) {
+                                console.log('发送offer_sdp失败' + error);
+                            }); 
+                        }else if(createType==="answer"){
+                            //只有把远端offer的sdp设置好了，才能去answer
+                            console.log("设置用户的sdp",uid,'sdp是',jsonSdp)
+                            peerlist[uid].setRemoteDescription(new RTCSessionDescription(jsonSdp))
 
-                //             console.log("给用户发送answer",uid)
-                //             peerlist[uid].createAnswer(sendAnswerFn[uid], function (error) {
-                //                 console.log('Failure callback: ' + error);
-                //             })
-                //         }
-                //     }).catch(error=>{
-                //         console.error('视频流获取失败',error)
-                //     })
-                setLocalStream()
+                            console.log("给用户发送answer",uid)
+                            peerlist[uid].createAnswer(sendAnswerFn[uid], function (error) {
+                                console.log('Failure callback: ' + error);
+                            })
+                        }
+                    }).catch(error=>{
+                        console.error('视频流获取失败',error)
+                    })
+                //setLocalStream()
             }else if(userAction==='切换视频流'){
                 //如果只是切换视频流的话，只需要把用户的发来的offer的sdp设置一下就好
                 console.log(uid,'切换了视频流，设置他新的sdp,然后响应他的sdp,发送一个answer')
@@ -245,7 +245,7 @@
                         //如果是一个ICE的候选，则将其加入到PeerConnection中，否则设定对方的session描述为传递过来的描述
                         if( json.event === "_ice_candidate" ){
                             console.log("收到的ice是啥",json.data.candidate)
-                            peerlist[json.uid].addIceCandidate(new RTCIceCandidate(json.data.candidate));
+                            peerlist[json.uid].addIceCandidate(new RTCIceCandidate(json.data.candidate),test,onError);
                         }else {
                             // 如果是一个offer，那么需要回复一个answer
                             if(json.event === "_offer") {
