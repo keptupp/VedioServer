@@ -36,7 +36,7 @@
             
         }
         function onError(err){
-            
+            console.log("出错",err)
         }
 
         const constraints={
@@ -209,6 +209,7 @@
                     }).catch(error=>{
                         console.error('视频流获取失败',error)
                     })
+                //setLocalStream()
             }else if(userAction==='切换视频流'){
                 //如果只是切换视频流的话，只需要把用户的发来的offer的sdp设置一下就好
                 console.log(uid,'切换了视频流，设置他新的sdp,然后响应他的sdp,发送一个answer')
@@ -245,7 +246,7 @@
                         //如果是一个ICE的候选，则将其加入到PeerConnection中，否则设定对方的session描述为传递过来的描述
                         if( json.event === "_ice_candidate" ){
                             console.log("收到的ice是啥",json.data.candidate)
-                            peerlist[json.uid].addIceCandidate(new RTCIceCandidate(json.data.candidate));
+                            peerlist[json.uid].addIceCandidate(new RTCIceCandidate(json.data.candidate),test,onError);
                         }else {
                             // 如果是一个offer，那么需要回复一个answer
                             if(json.event === "_offer") {

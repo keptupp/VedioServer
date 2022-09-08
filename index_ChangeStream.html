@@ -1,0 +1,43 @@
+<html>
+    <body>
+        加入时id：<input id="uid" type="text"/><button onclick="join()">加入</button>
+        <select id="captureType" onchange="changeCapture(this)">
+            <option value="前置" selected="selected">默认(前置摄像头)</option>
+            <option value="后置">后置摄像头</option>
+            <option value="屏幕">屏幕捕获</option>
+        </select>
+        <br>
+        本地: <br>
+        <video id="localVideo" autoplay muted style="width: 400px;"></video><br>
+        远程: <br>
+        <div id="remoteVideo">
+
+        </div>
+    </body>
+    <script>
+        //这个版本以对象的形式来管理连接
+        var PeerConnection={}//用户连接的对象
+        var localStream={}//存储本地流
+        var captureType='前置'
+
+        
+        function updateStream(stream){
+            document.getElementById('localVideo').srcObject = stream
+            localStream=stream
+        }
+        function setLocalStream(captureType){
+            if(document.getElementById('localVideo').srcObject!=null){
+                //更改流之前，先把以前的流停掉
+                document.getElementById('localVideo').srcObject.getTracks()[0].stop()
+            }
+            if(captureType=='前置'){
+                navigator.mediaDevices.getUserMedia(constraints).then(updateStream)
+            }else if(captureType=='后置'){
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment"}}).then(updateStream)
+            }else if(captureType=='屏幕'){
+                navigator.mediaDevices.getDisplayMedia(constraints).then(updateStream)
+            }
+        }
+
+    </script>
+</html>
